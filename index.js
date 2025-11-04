@@ -1,36 +1,48 @@
-const express = require('express');
-const jwt = require('jsonwebtoken');
-const session = require('express-session')
-const customer_routes = require('./router/auth_users.js').authenticated;
-const genl_routes = require('./router/general.js').general;
+// index.js
+const express = require("express");
+const bodyParser = require("body-parser");
+const session = require("express-session");
+const jwt = require("jsonwebtoken");
+const generalRouter = require("./general");
+const authUsersRouter = require("./auth_users");
 
 const app = express();
+app.use(bodyParser.json());
 
-app.use(express.json());
+// Session setup
+app.use(session({
+  secret: "sessionSecretKey123",
+  resave: false,
+  saveUninitialized: true,
+  cookie: { maxAge: 60 * 60 * 1000 } // 1 hour
+}));
 
-app.use("/customer",session({secret:"fingerprint_customer",resave: true, saveUninitialized: true}))
+// Authentication middleware for /customer/auth/*
+app.use("/customer/auth/*", function auth(req, res, next) {
+  if (!req.session || !req.session.authorization) {
+    return res.status(403).json({ message: "User not logged in or session expired" });
+  }
 
-app.use("/customer/auth/*", function auth(req,res,next){
-//Write the authenication mechanism here
-if (req.session.authorization) {
-    let token = req.session.authorization['accessToken'];
-    jwt.verify(token, "access", (err, user) => {
-        if (!err) {
-            req.user = user;
-            next();
-        } else {
-            return res.status(403).json({ message: "User not authenticated" });
-        }
-    });
-} else {
-    return res.status(403).json({ message: "User not logged in" });
-}
+  const accessToken = req.session.authorization.accessToken;
+  if (!accessToken) {
+    return res.status(403).json({ message: "No access token found in session" });
+  }
 
+  jwt.verify(accessToken, "access", (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ message: "Invalid or expired access token" });
+    }
+    req.user = { username: decoded.username };
+    next();
+  });
 });
- 
-const PORT =5000;
 
-app.use("/customer", customer_routes);
-app.use("/", genl_routes);
+// Mount routers
+app.use("/", generalRouter);
+app.use("/customer/auth", authUsersRouter);
 
-app.listen(PORT,()=>console.log("Server is running"));
+// Start server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Book Review app listening on port ${PORT}`);
+});
